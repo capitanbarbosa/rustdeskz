@@ -629,6 +629,27 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
               ffi: gFFI,
             ));
           }
+          // Add floating action button for keyboard
+          if (gFFI.ffiModel.pi.isSet.isTrue && 
+              !isWebDesktop && 
+              !gFFI.ffiModel.viewOnly && 
+              gFFI.ffiModel.keyboard) {
+            paints.add(
+              Positioned(
+                bottom: 80,
+                right: 16,
+                child: FloatingActionButton(
+                  heroTag: "keyboard_fab",
+                  backgroundColor: MyTheme.accent,
+                  child: Icon(
+                    Icons.keyboard,
+                    color: Colors.white,
+                  ),
+                  onPressed: openKeyboard,
+                ),
+              ),
+            );
+          }
           return paints;
         }()));
   }
