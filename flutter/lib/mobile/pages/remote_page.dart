@@ -70,6 +70,10 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
 
   Timer? _timerDidChangeMetrics;
 
+  // Draggable FAB position
+  Offset _keyboardFabPosition = Offset(0, 0);
+  bool _isFabInitialized = false;
+
   final _blockableOverlayState = BlockableOverlayState();
 
   final keyboardVisibilityController = KeyboardVisibilityController();
@@ -186,6 +190,21 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
       if (newBottom != _viewInsetsBottom) {
         gFFI.canvasModel.mobileFocusCanvasCursor();
         _viewInsetsBottom = newBottom;
+      }
+      
+      // Keep FAB within screen bounds when screen size changes
+      if (_isFabInitialized && mounted) {
+        final size = MediaQueryData.fromView(ui.window).size;
+        final fabSize = 56.0;
+        final margin = 16.0;
+        final bottomBarHeight = 56.0;
+        final bottomMargin = bottomBarHeight + margin;
+        setState(() {
+          _keyboardFabPosition = Offset(
+            _keyboardFabPosition.dx.clamp(margin, size.width - fabSize - margin),
+            _keyboardFabPosition.dy.clamp(margin, size.height - fabSize - bottomMargin),
+          );
+        });
       }
     });
   }
@@ -432,6 +451,20 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
                                       .resetMobileActionsOverlay(ffi: gFFI);
                                   _currentOrientation = orientation;
                                   gFFI.canvasModel.updateViewStyle();
+                                  // Reset FAB position to default when orientation changes
+                                  if (_isFabInitialized && mounted) {
+                                    final size = MediaQuery.of(ctx).size;
+                                    final fabSize = 56.0;
+                                    final margin = 16.0;
+                                    final bottomBarHeight = 56.0;
+                                    final bottomMargin = bottomBarHeight + margin;
+                                    setState(() {
+                                      _keyboardFabPosition = Offset(
+                                        size.width - fabSize - margin,
+                                        size.height - fabSize - bottomMargin,
+                                      );
+                                    });
+                                  }
                                 });
                               }
                               return Container(
@@ -629,23 +662,56 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
               ffi: gFFI,
             ));
           }
-          // Add floating action button for keyboard
+          // Add draggable floating action button for keyboard
           if (gFFI.ffiModel.pi.isSet.isTrue && 
               !isWebDesktop && 
               !gFFI.ffiModel.viewOnly && 
               gFFI.ffiModel.keyboard) {
+            final mediaQuery = MediaQuery.of(context);
+            final size = mediaQuery.size;
+            final fabSize = 56.0;
+            final margin = 16.0; // Margin from edges
+            final bottomBarHeight = 56.0; // BottomAppBar height
+            final bottomMargin = bottomBarHeight + margin; // Margin from bottom bar
+            
+            // Initialize position on first build - bottom right corner with margins
+            if (!_isFabInitialized) {
+              _keyboardFabPosition = Offset(
+                size.width - fabSize - margin, // Right margin
+                size.height - fabSize - bottomMargin, // Above bottom bar with margin
+              );
+              _isFabInitialized = true;
+            }
+            
             paints.add(
               Positioned(
-                bottom: 80,
-                right: 16,
-                child: FloatingActionButton(
-                  heroTag: "keyboard_fab",
-                  backgroundColor: MyTheme.accent,
-                  child: Icon(
-                    Icons.keyboard,
-                    color: Colors.white,
+                left: _keyboardFabPosition.dx,
+                top: _keyboardFabPosition.dy,
+                child: GestureDetector(
+                  onPanUpdate: (details) {
+                    setState(() {
+                      // Update position with drag delta
+                      _keyboardFabPosition = Offset(
+                        _keyboardFabPosition.dx + details.delta.dx,
+                        _keyboardFabPosition.dy + details.delta.dy,
+                      );
+                      
+                      // Keep within screen bounds with margins
+                      _keyboardFabPosition = Offset(
+                        _keyboardFabPosition.dx.clamp(margin, size.width - fabSize - margin),
+                        _keyboardFabPosition.dy.clamp(margin, size.height - fabSize - bottomMargin),
+                      );
+                    });
+                  },
+                  child: FloatingActionButton(
+                    heroTag: "keyboard_fab",
+                    backgroundColor: MyTheme.accent,
+                    child: Icon(
+                      Icons.keyboard,
+                      color: Colors.white,
+                    ),
+                    onPressed: openKeyboard,
                   ),
-                  onPressed: openKeyboard,
                 ),
               ),
             );
