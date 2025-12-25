@@ -34,27 +34,70 @@ if (flutterVersionName == null) {
 
 // Add rustls-platform-verifier Android support
 String findRustlsPlatformVerifierMavenDir() {
-    def dependencyText = providers.exec {
-        it.workingDir = new File("../..")
-        commandLine("cargo", "metadata", "--format-version", "1")
-    }.standardOutput.asText.get()
+    def cargoHome = System.getenv("CARGO_HOME") ?: "${System.getProperty("user.home")}/.cargo"
+    def cargoBin = "${cargoHome}/bin"
+    def cargoPath = "${cargoBin}/cargo"
+    
+    // First try to find in Cargo.lock
+    def cargoLock = file("../../Cargo.lock")
+    if (cargoLock.exists()) {
+        def lockContent = cargoLock.text
+        def match = lockContent =~ /name = "rustls-platform-verifier-android"[\s\S]*?version = "([^"]+)"/
+        if (match.find()) {
+            def version = match.group(1)
+            // Try common locations for cargo registry
+            def registryPaths = [
+                "${cargoHome}/registry/src",
+                "${System.getProperty("user.home")}/.cargo/registry/src"
+            ]
+            for (def registryPath : registryPaths) {
+                def registryDir = new File(registryPath)
+                if (registryDir.exists()) {
+                    // Search for the package directory
+                    def files = registryDir.listFiles()
+                    if (files != null) {
+                        for (def f : files) {
+                            if (f.isDirectory() && f.name.contains("rustls-platform-verifier-android")) {
+                                def mavenDir = new File(f, "maven")
+                                if (mavenDir.exists()) {
+                                    println("✓ Found rustls-platform-verifier maven repo at: ${mavenDir.path}")
+                                    return mavenDir.path
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Fallback to cargo metadata
+    try {
+        def cargoFile = new File(cargoPath)
+        def cargoCmd = cargoFile.exists() ? cargoPath : "cargo"
+        
+        def dependencyText = providers.exec {
+            it.workingDir = new File("../..")
+            commandLine(cargoCmd, "metadata", "--format-version", "1")
+        }.standardOutput.asText.get()
 
-    def dependencyJson = new JsonSlurper().parseText(dependencyText)
-    def pkg = dependencyJson.packages.find { it.name == "rustls-platform-verifier-android" }
-    
-    if (pkg == null) {
-        throw new GradleException("rustls-platform-verifier-android package not found in cargo metadata!")
+        def dependencyJson = new JsonSlurper().parseText(dependencyText)
+        def pkg = dependencyJson.packages.find { it.name == "rustls-platform-verifier-android" }
+        
+        if (pkg != null) {
+            def manifestPath = file(pkg.manifest_path)
+            def mavenDir = new File(manifestPath.parentFile, "maven")
+            
+            if (mavenDir.exists()) {
+                println("✓ Found rustls-platform-verifier maven repo at: ${mavenDir.path}")
+                return mavenDir.path
+            }
+        }
+    } catch (Exception e) {
+        println("Warning: Could not run cargo metadata: ${e.message}")
     }
     
-    def manifestPath = file(pkg.manifest_path)
-    def mavenDir = new File(manifestPath.parentFile, "maven")
-    
-    if (!mavenDir.exists()) {
-        throw new GradleException("Maven directory not found at: ${mavenDir.path}")
-    }
-    
-    println("✓ Found rustls-platform-verifier maven repo at: ${mavenDir.path}")
-    return mavenDir.path
+    throw new GradleException("rustls-platform-verifier-android maven directory not found! Please ensure Rust dependencies are built.")
 }
 
 
@@ -82,7 +125,9 @@ protobuf {
 }
 
 android {
+    namespace "com.carriez.flutter_hbb"
     compileSdkVersion 34
+    ndkVersion "26.1.10909125"
     sourceSets {
         main.java.srcDirs += 'src/main/kotlin'
 
@@ -91,17 +136,25 @@ android {
     }
 
     compileOptions {
+        coreLibraryDesugaringEnabled true
         targetCompatibility JavaVersion.VERSION_1_8
         sourceCompatibility JavaVersion.VERSION_1_8
+    }
+    
+    kotlinOptions {
+        jvmTarget = '1.8'
     }
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId "com.carriez.flutter_hbb"
-        minSdkVersion 22
+        minSdkVersion flutter.minSdkVersion
         targetSdkVersion 33
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
     }
 
     signingConfigs {
@@ -134,4 +187,5 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-stdlib") { version { strictly("1.9.10") } }
     implementation 'com.caverock:androidsvg-aar:1.4'
     implementation "rustls:rustls-platform-verifier:0.1.1"
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
 }
