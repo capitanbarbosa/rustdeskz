@@ -62,6 +62,10 @@ class MainActivity : FlutterActivity() {
             channelTag
         )
         initFlutterChannel(flutterMethodChannel!!)
+        // Disable screenshot prevention
+        activity.runOnUiThread {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
         thread {
             try {
                 setCodecInfo()
@@ -73,6 +77,11 @@ class MainActivity : FlutterActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Disable screenshot prevention (clear FLAG_SECURE if it was set)
+        // Use post to ensure it runs after any other code that might set it
+        window.decorView.post {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
         val inputPer = InputService.isOpen
         activity.runOnUiThread {
             flutterMethodChannel?.invokeMethod(
@@ -98,9 +107,15 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Disable screenshot prevention (clear FLAG_SECURE if it was set)
+        window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
         if (_rdClipboardManager == null) {
             _rdClipboardManager = RdClipboardManager(getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
             FFI.setClipboardManager(_rdClipboardManager!!)
+        }
+        // Ensure FLAG_SECURE is cleared after window is attached
+        window.decorView.post {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
     }
 
@@ -409,6 +424,20 @@ class MainActivity : FlutterActivity() {
 
     override fun onStart() {
         super.onStart()
+        // Disable screenshot prevention (clear FLAG_SECURE if it was set)
+        window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
         stopService(Intent(this, FloatingWindowService::class.java))
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // Disable screenshot prevention whenever window gains focus
+        if (hasFocus) {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            // Also use post to ensure it's cleared after any other code
+            window.decorView.post {
+                window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            }
+        }
     }
 }
