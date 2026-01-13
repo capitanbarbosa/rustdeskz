@@ -9,6 +9,7 @@ echo "Home: $HOME"
 export FLUTTER_VERSION="3.24.5"
 export RUST_VERSION="1.75"
 export NDK_VERSION="26.1.10909125"
+export VCPKG_COMMIT_ID="962e5e39f8a25f42522f51fffc574e05a3efd26b"
 
 # Use the SDK you already installed
 export JAVA_HOME="/usr/lib/jvm/java-21-openjdk-amd64"
@@ -16,12 +17,14 @@ export ANDROID_HOME="/var/jenkins_home/android-sdk"
 export ANDROID_SDK_ROOT="$ANDROID_HOME"
 export ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/${NDK_VERSION}"
 export ANDROID_NDK_ROOT="${ANDROID_NDK_HOME}"
+export ANDROID_NDK="${ANDROID_NDK_HOME}"
 
-# Tools directory for Flutter and Rust
+# Tools directory for Flutter, Rust, vcpkg
 export TOOLS_DIR="$HOME/tools"
 export FLUTTER_HOME="$TOOLS_DIR/flutter"
 export CARGO_HOME="$TOOLS_DIR/.cargo"
 export RUSTUP_HOME="$TOOLS_DIR/.rustup"
+export VCPKG_ROOT="$TOOLS_DIR/vcpkg"
 
 mkdir -p "$TOOLS_DIR"
 
@@ -31,6 +34,7 @@ export PATH="$JAVA_HOME/bin:$FLUTTER_HOME/bin:$ANDROID_HOME/cmdline-tools/latest
 echo "JAVA_HOME: $JAVA_HOME"
 echo "ANDROID_HOME: $ANDROID_HOME"
 echo "ANDROID_NDK_HOME: $ANDROID_NDK_HOME"
+echo "VCPKG_ROOT: $VCPKG_ROOT"
 
 echo "=== Step 1: Verify Environment ==="
 java -version
@@ -40,7 +44,6 @@ echo "=== Step 1b: Initialize Git Submodules ==="
 cd "$WORKSPACE"
 git submodule update --init --recursive
 echo "Submodules initialized!"
-ls -la libs/hbb_common/
 
 echo "=== Step 2: Install Rust ==="
 if [ ! -f "$CARGO_HOME/env" ]; then
@@ -67,9 +70,36 @@ fi
 
 flutter config --android-sdk ${ANDROID_HOME} 2>/dev/null || true
 yes | flutter doctor --android-licenses 2>/dev/null || true
-flutter doctor -v || true
 
-echo "=== Step 4: Build Rust Library for ARM64 ==="
+echo "=== Step 4: Install VCPKG ==="
+if [ ! -d "${VCPKG_ROOT}" ]; then
+    echo "Cloning vcpkg..."
+    cd "$TOOLS_DIR"
+    git clone https://github.com/microsoft/vcpkg.git
+    cd vcpkg
+    git checkout ${VCPKG_COMMIT_ID}
+    ./bootstrap-vcpkg.sh -disableMetrics
+else
+    echo "vcpkg already installed"
+fi
+
+echo "=== Step 5: Build vcpkg Android dependencies ==="
+cd "$WORKSPACE"
+
+# Install vcpkg dependencies for Android arm64
+echo "Installing vcpkg dependencies for arm64-android..."
+export VCPKG_DISABLE_METRICS=1
+
+# Install the required packages
+$VCPKG_ROOT/vcpkg install opus libvpx libyuv aom --triplet arm64-android --x-install-root="$VCPKG_ROOT/installed" 2>&1 || {
+    echo "Trying with manifest mode..."
+    $VCPKG_ROOT/vcpkg install --triplet arm64-android --x-install-root="$VCPKG_ROOT/installed" 2>&1 || true
+}
+
+echo "vcpkg packages installed!"
+ls -la "$VCPKG_ROOT/installed/arm64-android/lib/" 2>/dev/null || echo "No libs yet"
+
+echo "=== Step 6: Build Rust Library for ARM64 ==="
 cd "$WORKSPACE"
 
 echo "Building Rust library with cargo-ndk..."
@@ -88,7 +118,7 @@ if [ -f "$LIBCPP" ]; then
     echo "libc++_shared.so copied!"
 fi
 
-echo "=== Step 5: Build Flutter APK ==="
+echo "=== Step 7: Build Flutter APK ==="
 cd "$WORKSPACE/flutter"
 # Increase Gradle memory
 sed -i "s/org.gradle.jvmargs=-Xmx1024M/org.gradle.jvmargs=-Xmx4g/g" android/gradle.properties 2>/dev/null || true
@@ -96,7 +126,7 @@ sed -i "s/org.gradle.jvmargs=-Xmx1024M/org.gradle.jvmargs=-Xmx4g/g" android/grad
 flutter pub get
 flutter build apk --release --target-platform android-arm64 --split-per-abi
 
-echo "=== Step 6: Copy APK ==="
+echo "=== Step 8: Copy APK ==="
 APK_PATH="build/app/outputs/flutter-apk/app-arm64-v8a-release.apk"
 if [ -f "$APK_PATH" ]; then
     cp "$APK_PATH" "$WORKSPACE/rustdesk-arm64.apk"
