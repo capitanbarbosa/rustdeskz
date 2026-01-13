@@ -36,6 +36,12 @@ echo "=== Step 1: Verify Environment ==="
 java -version
 echo "NDK location: $(ls $ANDROID_NDK_HOME 2>/dev/null | head -3 || echo 'NOT FOUND')"
 
+echo "=== Step 1b: Initialize Git Submodules ==="
+cd "$WORKSPACE"
+git submodule update --init --recursive
+echo "Submodules initialized!"
+ls -la libs/hbb_common/
+
 echo "=== Step 2: Install Rust ==="
 if [ ! -f "$CARGO_HOME/env" ]; then
     echo "Installing Rust..."
@@ -64,23 +70,26 @@ yes | flutter doctor --android-licenses 2>/dev/null || true
 flutter doctor -v || true
 
 echo "=== Step 4: Build Rust Library for ARM64 ==="
-cd "$WORKSPACE/flutter"
+cd "$WORKSPACE"
 
 echo "Building Rust library with cargo-ndk..."
-cargo ndk -t arm64-v8a build --release
+# Build from project root with flutter and mediacodec features
+cargo ndk --platform 21 --target aarch64-linux-android build --release --features flutter,mediacodec
 
 # Copy library to jniLibs
-mkdir -p android/app/src/main/jniLibs/arm64-v8a
-cp ../target/aarch64-linux-android/release/liblibrustdesk.so android/app/src/main/jniLibs/arm64-v8a/librustdesk.so 2>/dev/null || true
+mkdir -p flutter/android/app/src/main/jniLibs/arm64-v8a
+cp target/aarch64-linux-android/release/liblibrustdesk.so flutter/android/app/src/main/jniLibs/arm64-v8a/librustdesk.so
+echo "Rust library copied!"
 
 # Copy libc++_shared.so
 LIBCPP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so"
 if [ -f "$LIBCPP" ]; then
-    cp "$LIBCPP" android/app/src/main/jniLibs/arm64-v8a/
+    cp "$LIBCPP" flutter/android/app/src/main/jniLibs/arm64-v8a/
     echo "libc++_shared.so copied!"
 fi
 
 echo "=== Step 5: Build Flutter APK ==="
+cd "$WORKSPACE/flutter"
 # Increase Gradle memory
 sed -i "s/org.gradle.jvmargs=-Xmx1024M/org.gradle.jvmargs=-Xmx4g/g" android/gradle.properties 2>/dev/null || true
 

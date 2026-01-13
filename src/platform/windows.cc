@@ -692,6 +692,9 @@ extern "C"
         case VK_TAB:
             if (GetAsyncKeyState(VK_MENU) & 0x8000)
                 return 1;
+            // Ctrl+Tab and Ctrl+Shift+Tab for tab navigation (e.g., 3-finger swipe gestures)
+            if (GetAsyncKeyState(VK_CONTROL) & 0x8000)
+                return 1;
         case VK_ESCAPE:
             if (GetAsyncKeyState(VK_MENU) & 0x8000)
                 return 1;
