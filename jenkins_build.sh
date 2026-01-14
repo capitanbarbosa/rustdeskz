@@ -113,7 +113,11 @@ ls -la "$VCPKG_ROOT/installed/arm64-android/lib/" 2>/dev/null || {
     $VCPKG_ROOT/vcpkg install opus libvpx libyuv --triplet arm64-android --x-install-root="$VCPKG_ROOT/installed" || true
 }
 
-echo "=== Step 6: Generate Flutter-Rust Bridge ==="
+echo "=== Step 6: Setup Flutter Dependencies ==="
+cd "$WORKSPACE/flutter"
+flutter pub get
+
+echo "=== Step 6b: Generate Flutter-Rust Bridge ==="
 cd "$WORKSPACE"
 
 # Install flutter_rust_bridge_codegen if not present
