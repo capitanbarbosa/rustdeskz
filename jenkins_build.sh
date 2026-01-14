@@ -34,6 +34,15 @@ export PATH="$JAVA_HOME/bin:$FLUTTER_HOME/bin:$ANDROID_HOME/cmdline-tools/latest
 NDK_SYSROOT="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
 export BINDGEN_EXTRA_CLANG_ARGS="--sysroot=${NDK_SYSROOT} -I${NDK_SYSROOT}/usr/include -I${NDK_SYSROOT}/usr/include/aarch64-linux-android"
 
+# CMake toolchain settings for Android NDK (needed for oboe-sys)
+export CMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake"
+export ANDROID_ABI="arm64-v8a"
+export ANDROID_PLATFORM="android-21"
+export ANDROID_STL="c++_shared"
+
+# Tell oboe-sys to use prebuilt oboe (will be set up in step 5)
+export OBOE_SHARED=1
+
 echo "JAVA_HOME: $JAVA_HOME"
 echo "ANDROID_HOME: $ANDROID_HOME"
 echo "ANDROID_NDK_HOME: $ANDROID_NDK_HOME"
@@ -42,6 +51,8 @@ echo "VCPKG_ROOT: $VCPKG_ROOT"
 echo "=== Step 1: Verify Environment ==="
 java -version
 echo "NDK location: $(ls $ANDROID_NDK_HOME 2>/dev/null | head -3 || echo 'NOT FOUND')"
+echo "CMake: $(which cmake || echo 'NOT FOUND')"
+echo "Ninja: $(which ninja || echo 'NOT FOUND - CMake will use make')"
 
 echo "=== Step 1b: Initialize Git Submodules ==="
 cd "$WORKSPACE"
@@ -113,6 +124,25 @@ ls -la "$VCPKG_ROOT/installed/arm64-android/lib/" 2>/dev/null || {
     $VCPKG_ROOT/vcpkg install opus libvpx libyuv --triplet arm64-android --x-install-root="$VCPKG_ROOT/installed" || true
 }
 
+# Create a minimal stub for libndk_compat.a if not present (oboe-sys may need this)
+# This is only needed for compatibility with older Android APIs
+NDK_COMPAT_DIR="$TOOLS_DIR/ndk_compat"
+mkdir -p "$NDK_COMPAT_DIR"
+if [ ! -f "$NDK_COMPAT_DIR/libndk_compat.a" ]; then
+    echo "Creating minimal ndk_compat stub..."
+    # Create an empty stub C file and compile to static lib
+    echo "// ndk_compat stub" > "$NDK_COMPAT_DIR/stub.c"
+    "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang" \
+        -c "$NDK_COMPAT_DIR/stub.c" -o "$NDK_COMPAT_DIR/stub.o"
+    "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar" \
+        rcs "$NDK_COMPAT_DIR/libndk_compat.a" "$NDK_COMPAT_DIR/stub.o"
+    echo "Created: $NDK_COMPAT_DIR/libndk_compat.a"
+fi
+
+# Add ndk_compat to library search path
+export LIBRARY_PATH="$NDK_COMPAT_DIR:$LIBRARY_PATH"
+export RUSTFLAGS="-L $NDK_COMPAT_DIR $RUSTFLAGS"
+
 echo "=== Step 6: Setup Flutter Dependencies ==="
 cd "$WORKSPACE/flutter"
 flutter pub get
@@ -140,6 +170,10 @@ fi
 
 echo "=== Step 7: Build Rust Library for ARM64 ==="
 cd "$WORKSPACE"
+
+# Clean oboe-sys to ensure it rebuilds with correct CMake env vars
+echo "Cleaning oboe-sys build cache..."
+rm -rf target/aarch64-linux-android/release/build/oboe-sys-* 2>/dev/null || true
 
 echo "Building Rust library with cargo-ndk..."
 # Build from project root with flutter feature (mediacodec has broken code in this fork)
