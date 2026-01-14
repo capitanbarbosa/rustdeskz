@@ -113,7 +113,28 @@ ls -la "$VCPKG_ROOT/installed/arm64-android/lib/" 2>/dev/null || {
     $VCPKG_ROOT/vcpkg install opus libvpx libyuv --triplet arm64-android --x-install-root="$VCPKG_ROOT/installed" || true
 }
 
-echo "=== Step 6: Build Rust Library for ARM64 ==="
+echo "=== Step 6: Generate Flutter-Rust Bridge ==="
+cd "$WORKSPACE"
+
+# Install flutter_rust_bridge_codegen if not present
+cargo install flutter_rust_bridge_codegen --version 1.80.1 --features uuid --locked 2>/dev/null || true
+
+# Always regenerate bridge files to ensure they're up to date
+echo "Generating Flutter-Rust bridge files..."
+$CARGO_HOME/bin/flutter_rust_bridge_codegen \
+    --rust-input ./src/flutter_ffi.rs \
+    --dart-output ./flutter/lib/generated_bridge.dart
+
+# Verify the bridge file was created
+if [ -f "src/bridge_generated.rs" ]; then
+    echo "Bridge files generated successfully!"
+    ls -la src/bridge_generated.rs
+else
+    echo "ERROR: bridge_generated.rs was not created!"
+    exit 1
+fi
+
+echo "=== Step 7: Build Rust Library for ARM64 ==="
 cd "$WORKSPACE"
 
 echo "Building Rust library with cargo-ndk..."
@@ -132,7 +153,7 @@ if [ -f "$LIBCPP" ]; then
     echo "libc++_shared.so copied!"
 fi
 
-echo "=== Step 7: Build Flutter APK ==="
+echo "=== Step 8: Build Flutter APK ==="
 cd "$WORKSPACE/flutter"
 # Increase Gradle memory
 sed -i "s/org.gradle.jvmargs=-Xmx1024M/org.gradle.jvmargs=-Xmx4g/g" android/gradle.properties 2>/dev/null || true
@@ -140,7 +161,7 @@ sed -i "s/org.gradle.jvmargs=-Xmx1024M/org.gradle.jvmargs=-Xmx4g/g" android/grad
 flutter pub get
 flutter build apk --release --target-platform android-arm64 --split-per-abi
 
-echo "=== Step 8: Copy APK ==="
+echo "=== Step 9: Copy APK ==="
 APK_PATH="build/app/outputs/flutter-apk/app-arm64-v8a-release.apk"
 if [ -f "$APK_PATH" ]; then
     cp "$APK_PATH" "$WORKSPACE/rustdesk-arm64.apk"
