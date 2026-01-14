@@ -9,7 +9,6 @@ echo "Home: $HOME"
 export FLUTTER_VERSION="3.24.5"
 export RUST_VERSION="1.75"
 export NDK_VERSION="26.1.10909125"
-export VCPKG_COMMIT_ID="962e5e39f8a25f42522f51fffc574e05a3efd26b"
 
 # Use the SDK you already installed
 export JAVA_HOME="/usr/lib/jvm/java-21-openjdk-amd64"
@@ -30,6 +29,10 @@ mkdir -p "$TOOLS_DIR"
 
 # Update PATH
 export PATH="$JAVA_HOME/bin:$FLUTTER_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$CARGO_HOME/bin:$PATH"
+
+# Fix bindgen to use NDK sysroot instead of host sysroot
+NDK_SYSROOT="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+export BINDGEN_EXTRA_CLANG_ARGS="--sysroot=${NDK_SYSROOT} -I${NDK_SYSROOT}/usr/include -I${NDK_SYSROOT}/usr/include/aarch64-linux-android"
 
 echo "JAVA_HOME: $JAVA_HOME"
 echo "ANDROID_HOME: $ANDROID_HOME"
@@ -71,33 +74,44 @@ fi
 flutter config --android-sdk ${ANDROID_HOME} 2>/dev/null || true
 yes | flutter doctor --android-licenses 2>/dev/null || true
 
-echo "=== Step 4: Install VCPKG ==="
+echo "=== Step 4: Setup VCPKG with prebuilt libs ==="
+# Remove incomplete vcpkg if it exists without the binary
+if [ -d "${VCPKG_ROOT}" ] && [ ! -f "${VCPKG_ROOT}/vcpkg" ]; then
+    echo "Removing incomplete vcpkg installation..."
+    rm -rf "${VCPKG_ROOT}"
+fi
+
 if [ ! -d "${VCPKG_ROOT}" ]; then
     echo "Cloning vcpkg..."
     cd "$TOOLS_DIR"
-    git clone https://github.com/microsoft/vcpkg.git
+    git clone https://github.com/microsoft/vcpkg.git --depth=1
     cd vcpkg
-    git checkout ${VCPKG_COMMIT_ID}
     ./bootstrap-vcpkg.sh -disableMetrics
-else
-    echo "vcpkg already installed"
 fi
 
-echo "=== Step 5: Build vcpkg Android dependencies ==="
-cd "$WORKSPACE"
+echo "=== Step 5: Download prebuilt Android dependencies ==="
+cd "$TOOLS_DIR"
 
-# Install vcpkg dependencies for Android arm64
-echo "Installing vcpkg dependencies for arm64-android..."
-export VCPKG_DISABLE_METRICS=1
+# Use RustDesk's prebuilt third-party libraries
+if [ ! -d "rustdesk_thirdparty_lib" ]; then
+    echo "Cloning prebuilt libraries..."
+    git clone https://github.com/rustdesk-org/rustdesk_thirdparty_lib.git --depth=1
+fi
 
-# Install the required packages
-$VCPKG_ROOT/vcpkg install opus libvpx libyuv aom --triplet arm64-android --x-install-root="$VCPKG_ROOT/installed" 2>&1 || {
-    echo "Trying with manifest mode..."
-    $VCPKG_ROOT/vcpkg install --triplet arm64-android --x-install-root="$VCPKG_ROOT/installed" 2>&1 || true
+# Copy prebuilt vcpkg packages
+echo "Copying prebuilt libraries to vcpkg..."
+mkdir -p "$VCPKG_ROOT/installed"
+if [ -d "rustdesk_thirdparty_lib/vcpkg/installed" ]; then
+    cp -rf rustdesk_thirdparty_lib/vcpkg/installed/* "$VCPKG_ROOT/installed/" 2>/dev/null || true
+fi
+
+# Verify libraries exist
+echo "Checking for prebuilt libraries..."
+ls -la "$VCPKG_ROOT/installed/arm64-android/lib/" 2>/dev/null || {
+    echo "Prebuilt libs not available, building with vcpkg..."
+    cd "$WORKSPACE"
+    $VCPKG_ROOT/vcpkg install opus libvpx libyuv --triplet arm64-android --x-install-root="$VCPKG_ROOT/installed" || true
 }
-
-echo "vcpkg packages installed!"
-ls -la "$VCPKG_ROOT/installed/arm64-android/lib/" 2>/dev/null || echo "No libs yet"
 
 echo "=== Step 6: Build Rust Library for ARM64 ==="
 cd "$WORKSPACE"
