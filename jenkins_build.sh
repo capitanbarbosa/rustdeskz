@@ -117,8 +117,8 @@ echo "=== Step 6: Build Rust Library for ARM64 ==="
 cd "$WORKSPACE"
 
 echo "Building Rust library with cargo-ndk..."
-# Build from project root with flutter and mediacodec features
-cargo ndk --platform 21 --target aarch64-linux-android build --release --features flutter,mediacodec
+# Build from project root with flutter feature (mediacodec has broken code in this fork)
+cargo ndk --platform 21 --target aarch64-linux-android build --release --features flutter
 
 # Copy library to jniLibs
 mkdir -p flutter/android/app/src/main/jniLibs/arm64-v8a
