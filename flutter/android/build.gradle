@@ -15,21 +15,14 @@ subprojects {
 }
 
 // Fix for plugins that don't specify namespace (required by AGP 8.0+)
-subprojects {
-    afterEvaluate { project ->
-        if (project.hasProperty('android')) {
-            project.android {
-                if (namespace == null || namespace.isEmpty()) {
-                    // Try to get namespace from AndroidManifest.xml package attribute
-                    def manifestFile = file("${project.projectDir}/src/main/AndroidManifest.xml")
-                    if (manifestFile.exists()) {
-                        def manifest = new XmlSlurper().parse(manifestFile)
-                        def packageName = manifest.@package.toString()
-                        if (packageName && !packageName.isEmpty()) {
-                            namespace = packageName
-                        }
-                    }
-                }
+subprojects { sub ->
+    sub.plugins.withId("com.android.library") {
+        def manifestFile = file("${sub.projectDir}/src/main/AndroidManifest.xml")
+        if (manifestFile.exists()) {
+            def manifest = new XmlSlurper().parse(manifestFile)
+            def packageName = manifest.@package.toString()
+            if (packageName && !packageName.isEmpty()) {
+                sub.android.namespace = packageName
             }
         }
     }
