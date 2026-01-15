@@ -205,21 +205,29 @@ echo "gradle.properties:"
 cat android/gradle.properties
 
 flutter pub get
-flutter build apk --release --target-platform android-arm64 --split-per-abi
+# Note: Not using --split-per-abi because build.gradle already has ndk.abiFilters set to arm64-v8a
+flutter build apk --release --target-platform android-arm64
 
 echo "=== Step 9: Copy APK ==="
-APK_PATH="build/app/outputs/flutter-apk/app-arm64-v8a-release.apk"
+# Try both possible APK paths (with and without split-per-abi)
+APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
+APK_PATH_SPLIT="build/app/outputs/flutter-apk/app-arm64-v8a-release.apk"
+
 if [ -f "$APK_PATH" ]; then
     cp "$APK_PATH" "$WORKSPACE/rustdesk-arm64.apk"
-    echo ""
-    echo "========================================"
-    echo "BUILD SUCCESSFUL!"
-    echo "========================================"
-    echo "APK: $WORKSPACE/rustdesk-arm64.apk"
-    ls -lh "$WORKSPACE/rustdesk-arm64.apk"
-    echo "========================================"
+elif [ -f "$APK_PATH_SPLIT" ]; then
+    cp "$APK_PATH_SPLIT" "$WORKSPACE/rustdesk-arm64.apk"
 else
-    echo "ERROR: APK not found at $APK_PATH"
+    echo "ERROR: APK not found!"
+    echo "Looking for: $APK_PATH or $APK_PATH_SPLIT"
     ls -la build/app/outputs/flutter-apk/ 2>/dev/null || echo "No APK output directory"
     exit 1
 fi
+
+echo ""
+echo "========================================"
+echo "BUILD SUCCESSFUL!"
+echo "========================================"
+echo "APK: $WORKSPACE/rustdesk-arm64.apk"
+ls -lh "$WORKSPACE/rustdesk-arm64.apk"
+echo "========================================"
