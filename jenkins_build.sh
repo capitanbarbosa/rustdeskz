@@ -193,8 +193,16 @@ fi
 
 echo "=== Step 8: Build Flutter APK ==="
 cd "$WORKSPACE/flutter"
-# Increase Gradle memory
-sed -i "s/org.gradle.jvmargs=-Xmx1024M/org.gradle.jvmargs=-Xmx4g/g" android/gradle.properties 2>/dev/null || true
+
+# Fix gradle.properties for Linux build (remove macOS Java path)
+echo "Fixing gradle.properties for Linux..."
+sed -i '/org.gradle.java.home=/d' android/gradle.properties
+# Set correct Java home for Linux
+echo "org.gradle.java.home=$JAVA_HOME" >> android/gradle.properties
+
+# Show final gradle.properties
+echo "gradle.properties:"
+cat android/gradle.properties
 
 flutter pub get
 flutter build apk --release --target-platform android-arm64 --split-per-abi
