@@ -13,6 +13,7 @@ echo "Running in: $WORKSPACE"
 
 # Source environment
 source /etc/default/jenkins-env 2>/dev/null || true
+source "$HOME/.cargo/env" 2>/dev/null || true
 
 # Environment
 export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-21-openjdk-amd64}"
@@ -46,14 +47,57 @@ cd "$WORKSPACE"
 git submodule update --init --recursive
 
 echo ""
-echo "=== Step 2: Setup Flutter Dependencies ==="
+echo "=== Step 2: Setup VCPKG and Prebuilt Libraries ==="
+TOOLS_DIR="$HOME/tools"
+mkdir -p "$TOOLS_DIR"
+
+# Setup VCPKG
+if [ ! -d "$VCPKG_ROOT" ]; then
+    mkdir -p "$VCPKG_ROOT"
+fi
+
+# Get prebuilt libraries
+cd "$TOOLS_DIR"
+if [ ! -d "rustdesk_thirdparty_lib" ]; then
+    echo "Cloning prebuilt libraries..."
+    git clone https://github.com/rustdesk-org/rustdesk_thirdparty_lib.git --depth=1
+fi
+
+mkdir -p "$VCPKG_ROOT/installed/arm64-android/lib"
+if [ -d "rustdesk_thirdparty_lib/vcpkg/installed" ]; then
+    cp -rf rustdesk_thirdparty_lib/vcpkg/installed/* "$VCPKG_ROOT/installed/" 2>/dev/null || true
+fi
+
+# Create ndk_compat stub for oboe-sys
+NDK_COMPAT_DIR="$TOOLS_DIR/ndk_compat"
+mkdir -p "$NDK_COMPAT_DIR"
+if [ ! -f "$NDK_COMPAT_DIR/libndk_compat.a" ]; then
+    echo "Creating ndk_compat stub..."
+    echo "// ndk_compat stub" > "$NDK_COMPAT_DIR/stub.c"
+    "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang" \
+        -c "$NDK_COMPAT_DIR/stub.c" -o "$NDK_COMPAT_DIR/stub.o"
+    "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar" \
+        rcs "$NDK_COMPAT_DIR/libndk_compat.a" "$NDK_COMPAT_DIR/stub.o"
+fi
+export LIBRARY_PATH="$NDK_COMPAT_DIR:$LIBRARY_PATH"
+export RUSTFLAGS="-L $NDK_COMPAT_DIR $RUSTFLAGS"
+
+echo ""
+echo "=== Step 2b: Setup Flutter Dependencies ==="
 cd "$WORKSPACE/flutter"
 flutter pub get
 
 echo ""
 echo "=== Step 3: Generate Flutter-Rust Bridge ==="
 cd "$WORKSPACE"
-$CARGO_HOME/bin/flutter_rust_bridge_codegen \
+
+# Install flutter_rust_bridge_codegen if needed
+if ! command -v flutter_rust_bridge_codegen &> /dev/null; then
+    echo "Installing flutter_rust_bridge_codegen..."
+    cargo install flutter_rust_bridge_codegen --version "1.80.1" --locked || true
+fi
+
+flutter_rust_bridge_codegen \
     --rust-input ./src/flutter_ffi.rs \
     --dart-output ./flutter/lib/generated_bridge.dart \
     --class-name Rustdesk || echo "Bridge generation completed (warnings are OK)"
